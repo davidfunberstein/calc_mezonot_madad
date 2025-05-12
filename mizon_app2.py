@@ -84,14 +84,8 @@ def calculate_updated_mizono_with_link_factor(base_amount, base_cpi_value, curre
     ):
         return None
 
-    # בהתבסס על נוסחת הדוגמה שלך: סכום חדש = סכום מקורי * ((מדד יעד * מקדם קשר) / מדד בסיס)
-    # ההנחה היא שמקדם הקשר משפיע על מדד היעד כדי להביא אותו לאותו "קנה מידה" של מדד הבסיס
-    # או שמדד הבסיס צריך להיות מותאם
-    # אם המדד של 2024-3 (106) הוא בבסיס ישן, והמדד של 2025-3 (102) הוא בבסיס חדש,
-    # ומקדם הקשר (1.074) מחבר בין הבסיס הישן לחדש, אז:
-    # סכום חדש = סכום מקורי * (מדד יעד / (מדד בסיס / מקדם קשר))
-    # = סכום מקורי * (מדד יעד * מקדם קשר / מדד בסיס)  <-- זו הנוסחה שעובדת עם המספרים שנתת
-    
+    # הנוסחה שעובדת עם המספרים שציינת בדוגמה:
+    # סכום חדש = סכום מקורי * ((מדד יעד * מקדם קשר) / מדד בסיס)
     updated_amount = base_amount * (current_cpi_value * link_factor / base_cpi_value)
     return updated_amount
 
@@ -169,6 +163,7 @@ def main():
         with st.spinner("שולף נתונים ומבצע חישוב..."):
             base_year = int(base_year_input)
             base_month = int(base_month_input)
+            base_date_obj = datetime(base_year, base_month, 1)
 
             # שליפת מדד הבסיס ותיאור הבסיס
             base_cpi_value, base_cpi_base_desc = get_cpi_value_and_base(base_year, base_month)
@@ -201,21 +196,19 @@ def main():
                 current_cpi_lookup_year -= 1
             
             # וודא שהמדד המבוקש לא עתידי
-            if (current_cpi_lookup_year > datetime.now().year) or \
-               (current_cpi_lookup_year == datetime.now().year and current_cpi_lookup_month > datetime.now().month):
-               current_cpi_lookup_year = datetime.now().year
-               current_cpi_lookup_month = datetime.now().month
-               # אם היום לפני ה-15 בחודש, המדד האחרון שפורסם הוא חודשיים אחורה
-               if datetime.now().day < 15:
-                   current_cpi_lookup_month -= 2
-                   if current_cpi_lookup_month <= 0:
-                       current_cpi_lookup_month += 12
-                       current_cpi_lookup_year -= 1
-               else: # אם היום אחרי ה-15 בחודש, המדד האחרון שפורסם הוא חודש אחורה
-                   current_cpi_lookup_month -= 1
-                   if current_cpi_lookup_month <= 0:
-                       current_cpi_lookup_month += 12
-                       current_cpi_lookup_year -= 1
+            # אם החודש המחושב גדול מהחודש הנוכחי או השנה גדולה מהנוכחית,
+            # נחזור אחורה עד לחודש שקדם לחודש הנוכחי (או חודשיים אחורה אם אנחנו לפני ה-15)
+            if (current_cpi_lookup_year > today.year) or \
+               (current_cpi_lookup_year == today.year and current_cpi_lookup_month > today.month):
+                current_cpi_lookup_month = today.month
+                current_cpi_lookup_year = today.year
+                if today.day < 15:
+                    current_cpi_lookup_month -= 2
+                else:
+                    current_cpi_lookup_month -= 1
+                if current_cpi_lookup_month <= 0:
+                    current_cpi_lookup_month += 12
+                    current_cpi_lookup_year -= 1
 
 
             st.write(
@@ -236,7 +229,7 @@ def main():
                 f"מדד עדכני ({current_cpi_lookup_month:02d}/{current_cpi_lookup_year}, בסיס: {current_cpi_base_desc}): **{current_cpi_value:.2f}**"
             )
 
-            # חישוב הסכום המעודכן עם מקדם הקשר
+            # חישוב הסכום המעודכן
             updated_mizono_amount = calculate_updated_mizono_with_link_factor(
                 base_mizono_amount, base_cpi_value, current_cpi_value, link_factor_input
             )
@@ -268,18 +261,31 @@ def main():
 
                 st.info(f"**תאריך העדכון הבא המשוער:** {next_update_date.strftime('%d/%m/%Y')}")
 
-                st.subheader("היסטוריית עדכונים (הדמיה)")
-                st.write("זוהי הדמיה של עדכונים היסטוריים על בסיס נתוני הלמ\"ס והמקדם שהוזן. ייתכנו אי-דיוקים אם מקדמי הקשר משתנים לאורך ציר הזמן.")
+                st.subheader("היסטוריית עדכונים (שנתיים אחרונות)**")
+                st.write("היסטוריה זו מציגה את סכום המזונות המוצמד עבור נקודות העדכון השנתיים האחרונות (עד שנתיים אחורה מהיום).")
 
                 # בניית טבלה להצגת היסטוריית עדכונים
                 history_data = []
-                current_calc_date = datetime(base_year, base_month, 1)
                 
-                # לצורך הדמיה, נציג עדכונים קדימה עד לתאריך הנוכחי
-                while current_calc_date <= today:
+                # נקודת התחלה להיסטוריה: המוקדם מבין תאריך הבסיס או שנתיים אחורה מהיום
+                start_history_date = max(base_date_obj, today - timedelta(days=2*365)) # שנתיים אחורה בערך
+
+                # מצא את תאריך העדכון המשוער הראשון שנכנס לטווח שנתיים
+                # נתחיל מתאריך הבסיס ונתקדם בקפיצות עד שנגיע ל-start_history_date
+                current_history_date = datetime(base_year, base_month, 1)
+                while current_history_date < start_history_date:
+                    next_month = current_history_date.month + update_frequency_months
+                    next_year = current_history_date.year
+                    while next_month > 12:
+                        next_month -= 12
+                        next_year += 1
+                    current_history_date = datetime(next_year, next_month, 1)
+                
+                # לולאה קדימה מתאריך ההתחלה המותאם ועד היום
+                while current_history_date <= today:
                     # חודש המדד ששימש לחישוב בפועל (חודש לפני כניסת העדכון לתוקף)
-                    cpi_lookup_month_for_history = current_calc_date.month
-                    cpi_lookup_year_for_history = current_calc_date.year
+                    cpi_lookup_month_for_history = current_history_date.month
+                    cpi_lookup_year_for_history = current_history_date.year
 
                     # אם העדכון הוא בתחילת חודש, המדד הוא של החודש הקודם
                     cpi_lookup_month_for_history -= 1
@@ -291,15 +297,12 @@ def main():
                         cpi_lookup_year_for_history, cpi_lookup_month_for_history
                     )
 
-                    if cpi_for_history is None or base_cpi_value is None or base_cpi_value == 0:
+                    if cpi_for_history is None:
                         st.warning(
-                            f"אין נתוני מדד היסטוריים או מדד בסיס חסר עבור {cpi_lookup_month_for_history:02d}/{cpi_lookup_year_for_history}. היסטוריית החישובים חלקית."
+                            f"אין נתוני מדד היסטוריים עבור {cpi_lookup_month_for_history:02d}/{cpi_lookup_year_for_history}. היסטוריית החישובים חלקית."
                         )
-                        break
+                        break  # הפסק את הלולאה אם חסרים נתונים
 
-                    # חשוב: עבור היסטוריית העדכונים, אנחנו מניחים שמקדם הקשר שהוזן תקף לכל התקופה.
-                    # במציאות, מקדמי קשר משתנים רק כאשר יש מעבר בסיס במדד.
-                    # ההדמיה הזו אינה מורכבת מספיק כדי לטפל במקדמי קשר שונים לכל שינוי בסיס היסטורי.
                     calculated_amount = calculate_updated_mizono_with_link_factor(
                         base_mizono_amount, base_cpi_value, cpi_for_history, link_factor_input
                     )
@@ -307,26 +310,28 @@ def main():
                     if calculated_amount is not None:
                         history_data.append(
                             {
-                                "תאריך עדכון (הדמיה)": current_calc_date.strftime(
+                                "תאריך עדכון (משוער)": current_history_date.strftime(
                                     "%d/%m/%Y"
                                 ),
-                                "מדד שהוצמד עליו": f"{cpi_lookup_month_for_history:02d}/{cpi_lookup_year_for_history} ({cpi_for_history:.2f})",
+                                "מדד (חודש/שנה)": f"{cpi_lookup_month_for_history:02d}/{cpi_lookup_year_for_history}",
+                                "ערך מדד": f"{cpi_for_history:.2f}",
                                 "סכום מעודכן": f"{calculated_amount:.2f} ש\"ח",
                             }
                         )
 
                     # התקדמות לתאריך העדכון הבא
-                    next_calc_month = current_calc_date.month + update_frequency_months
-                    next_calc_year = current_calc_date.year
+                    next_calc_month = current_history_date.month + update_frequency_months
+                    next_calc_year = current_history_date.year
                     while next_calc_month > 12:
                         next_calc_month -= 12
                         next_calc_year += 1
-                    current_calc_date = datetime(next_calc_year, next_calc_month, 1)
+                    current_history_date = datetime(next_calc_year, next_calc_month, 1)
 
                 if history_data:
-                    st.dataframe(pd.DataFrame(history_data), hide_index=True)
+                    # היפוך סדר הטבלה כך שהעדכונים האחרונים יוצגו ראשונים
+                    st.dataframe(pd.DataFrame(history_data).iloc[::-1], hide_index=True)
                 else:
-                    st.write("אין היסטוריית עדכונים להצגה כרגע.")
+                    st.write("אין היסטוריית עדכונים להצגה כרגע בטווח המבוקש.")
 
 
 # הרצת האפליקציה
