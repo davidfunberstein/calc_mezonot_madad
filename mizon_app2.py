@@ -6,26 +6,17 @@ import xml.etree.ElementTree as ET
 
 
 # --- הגדרות ---
-# כתובת ה-API של הלמ"ס (מדד המחירים לצרכן - כללי)
 DATA_GOV_IL_API_URL = "https://api.cbs.gov.il/index/data/price"
-# מזהה המשאב (Resource ID) של מדד המחירים לצרכן - קוד 120010
-CPI_RESOURCE_ID = "120010"  # קוד מדד המחירים לצרכן לפי ה-API של הלמ"ס
+CPI_RESOURCE_ID = "120010"
 
 # --- פונקציות עזר לטיפול בתאריכים ---
 def get_date_for_cpi_lookup(year, month):
-    """
-    מחזירה את התאריך בפורמט 'YYYYMM' עבור חיפוש המדד ב-API של הלמ"ס.
-    """
     return f"{year:04d}{month:02d}"
 
 
 # --- פונקציה לשליפת מדד המחירים לצרכן מהלמ"ס ---
 @st.cache_data(ttl=timedelta(hours=12))
 def get_cpi_value_and_base(year, month):
-    """
-    שולף את מדד המחירים לצרכן (value) ואת תיאור הבסיס (baseDesc)
-    עבור חודש ושנה ספציפיים מה-API של הלמ"ס.
-    """
     period_str = get_date_for_cpi_lookup(year, month)
     query_params = {
         "id": CPI_RESOURCE_ID,
@@ -54,40 +45,58 @@ def get_cpi_value_and_base(year, month):
             if cpi_value is not None and base_desc is not None:
                 return cpi_value, base_desc
             else:
-                st.warning(f"אזהרה: לא נמצא ערך מדד או תיאור בסיס עבור תקופה {period_str} (שנה: {year}, חודש: {month}).")
                 return None, None
         else:
-            st.warning(f"אזהרה: לא נמצא אלמנט DateMonth עבור תקופה {period_str} (שנה: {year}, חודש: {month}).")
             return None, None
 
     except requests.exceptions.RequestException as e:
-        st.error(f"שגיאה בגישה ל-API של הלמ\"ס (לשליפת מדד ובסיס): {e}")
+        # st.error(f"שגיאה בגישה ל-API של הלמ\"ס (לשליפת מדד ובסיס): {e}") # נסיר הודעות שגיאה ברמת API למען חווית משתמש חלקה
         return None, None
     except ET.ParseError as e:
-        st.error(f"שגיאה בניתוח נתוני ה-XML: {e}")
-        st.code(xml_data, language="xml")
+        # st.error(f"שגיאה בניתוח נתוני ה-XML: {e}") # נסיר הודעות שגיאה ברמת XML למען חווית משתמש חלקה
+        # st.code(xml_data, language="xml")
         return None, None
     except (ValueError, KeyError) as e:
-        st.error(f"שגיאה בעיבוד נתוני ה-API: {e}")
+        # st.error(f"שגיאה בעיבוד נתוני ה-API: {e}") # נסיר הודעות שגיאה ברמת עיבוד נתונים למען חווית משתמש חלקה
         return None, None
 
 
-# --- פונקציה לחישוב סכום המזונות המעודכן עם מקדם קשר ---
-def calculate_updated_mizono_with_link_factor(base_amount, base_cpi_value, current_cpi_value, link_factor=1.0):
+# --- פונקציה לחישוב סכום מוצמד ביחס לבסיס קבוע (הצמדה חוזרת לבסיס) ---
+def calculate_indexed_amount_from_fixed_base(
+    base_amount,
+    fixed_base_cpi_value,       # מדד CPI של נקודת הבסיס הקבועה (לדוגמה, מדד מרץ 2024)
+    fixed_base_cpi_base_desc,   # תיאור בסיס CPI של נקודת הבסיס הקבועה
+    current_period_cpi_value,          # מדד CPI של התקופה הנוכחית (לדוגמה, מדד יוני 2024)
+    current_period_cpi_base_desc      # תיאור בסיס CPI של התקופה הנוכחית
+):
     """
-    מחשבת את סכום המזונות המעודכן, כולל מקדם קשר.
+    מחשבת את הסכום המוצמד מחדש בהתבסס על סכום בסיס קבוע ומדד בסיס קבוע,
+    ביחס למדד של התקופה הנוכחית.
+    מקדם קשר אינו פרמטר, מניחים 1.0 במידה ואין התאמה בסיסים (הלמ"ס מטפל בזה).
     """
     if (
-        base_cpi_value is None
-        or current_cpi_value is None
-        or base_cpi_value == 0
+        fixed_base_cpi_value is None
+        or current_period_cpi_value is None
+        or fixed_base_cpi_value == 0
     ):
         return None
 
-    # הנוסחה שעובדת עם המספרים שציינת בדוגמה:
-    # סכום חדש = סכום מקורי * ((מדד יעד * מקדם קשר) / מדד בסיס)
-    updated_amount = base_amount * (current_cpi_value * link_factor / base_cpi_value)
-    return updated_amount
+    # נניח שמקדם הקשר הוא 1.0, מכיוון שהמשתמש לא בוחר אותו והלמ"ס אמור לספק מדדים מותאמים לבסיס הרלוונטי.
+    indexed_amount = base_amount * (current_period_cpi_value / fixed_base_cpi_value)
+
+    return indexed_amount
+
+
+# --- פונקציה למציאת חודש המדד הרלוונטי לתאריך אפקטיבי/עדכון ---
+def get_cpi_month_for_effective_date(effective_date):
+    """
+    מחזירה את השנה והחודש של המדד הרלוונטי לתאריך העדכון הנתון.
+    המדד מתפרסם ב-15 לחודש עבור חודשיים קודם.
+    כלומר, עבור תאריך אפקטיבי/עדכון בתחילת חודש X, המדד הרלוונטי הוא של חודש X-2.
+    """
+    cpi_date = effective_date - pd.DateOffset(months=2)
+    
+    return cpi_date.year, cpi_date.month
 
 
 # --- לוגיקה של אפליקציית Streamlit ---
@@ -108,7 +117,6 @@ def main():
 
     st.header("הגדרות בסיסיות")
 
-    # קלטים מהמשתמש
     base_mizono_amount = st.number_input(
         "סכום מזונות בסיסי (ש\"ח):",
         min_value=1.0,
@@ -117,43 +125,45 @@ def main():
         format="%.2f",
     )
 
-    # בחירת חודש מדד הבסיס
     col1, col2 = st.columns(2)
     with col1:
-        base_month_input = st.selectbox(
-            "חודש מדד בסיס (לפי פסק הדין):",
+        # המשתמש בוחר את חודש תוקף פסק הדין/קביעת הסכום.
+        # המדד הרלוונטי שישמש כ"מדד בסיס קבוע" לכל ההצמדות,
+        # יחושב כחודשיים לפני תאריך זה.
+        base_effective_month_input = st.selectbox(
+            "חודש תוקף פסק הדין/ההסכם (תאריך אפקטיבי):",
             options=list(range(1, 13)),
-            index=4,  # מאי (חודש 5), אינדקס 4
+            index=4,  # מאי (חודש 5)
         )
     with col2:
-        base_year_input = st.number_input(
-            "שנת מדד בסיס (לפי פסק הדין):",
+        base_effective_year_input = st.number_input(
+            "שנת תוקף פסק הדין/ההסכם:",
             min_value=1990,
             max_value=datetime.now().year,
             value=2024,
             step=1,
         )
     
-    st.subheader("מקדם קשר (אם רלוונטי)")
-    st.markdown(
-        """
-        יש להזין מקדם קשר אם סדרת המדדים השתנתה בין תאריך הבסיס לתאריך העדכון
-        והמחשבון הרשמי של הלמ"ס משתמש במקדם זה (לדוגמה: 1.074 למעבר בסיס).
-        אם אינך בטוח, השאר 1.0.
-        """
-    )
-    link_factor_input = st.number_input(
-        "מקדם קשר:",
-        min_value=0.5,
-        value=1.074, # ערך ברירת מחדל לפי הדוגמה שסיפקת
-        max_value=2.0,
-        step=0.001,
-        format="%.3f",
-    )
-
+    # הסרת אפשרות בחירת מקדם קשר
+    # st.subheader("מקדם קשר (אם רלוונטי)")
+    # st.markdown(
+    #     """
+    #     יש להזין מקדם קשר אם חל שינוי בסדרת המדדים בין מדד הבסיס הקבוע לבין מדדים עתידיים.
+    #     לדוגמה, אם מדד הבסיס הוא מבסיס "2022 ממוצע" ומדד העדכון הוא מבסיס "2024 ממוצע",
+    #     יש להזין את מקדם הקשר בין הבסיסים.
+    #     """
+    # )
+    # link_factor_input = st.number_input(
+    #     "מקדם קשר:",
+    #     min_value=0.5,
+    #     value=1.0, 
+    #     max_value=2.0,
+    #     step=0.001,
+    #     format="%.3f",
+    # )
 
     update_frequency_months = st.selectbox(
-        "תדירות עדכון (חודשים):", options=[1, 3, 6, 12], index=1  # ברירת מחדל: 3 חודשים
+        "תדירות עדכון (חודשים - קובע את נקודות ההצמדה בפועל):", options=[1, 3, 6, 12], index=1
     )
 
     st.divider()
@@ -161,175 +171,174 @@ def main():
 
     if st.button("חשב סכום מזונות מעודכן"):
         with st.spinner("שולף נתונים ומבצע חישוב..."):
-            base_year = int(base_year_input)
-            base_month = int(base_month_input)
-            base_date_obj = datetime(base_year, base_month, 1)
-
-            # שליפת מדד הבסיס ותיאור הבסיס
-            base_cpi_value, base_cpi_base_desc = get_cpi_value_and_base(base_year, base_month)
-
-            if base_cpi_value is None:
-                st.error(
-                    "שגיאה: לא ניתן היה לשלוף את מדד הבסיס. אנא וודא את התאריך."
-                )
-                return
-
-            st.info(f"מדד בסיס ({base_month:02d}/{base_year}, בסיס: {base_cpi_base_desc}): **{base_cpi_value:.2f}**")
-
-            # מציאת חודש המדד העדכני ביותר שפורסם
-            today = datetime.now()
-
-            # המדד לחודש קודם מתפרסם ב-15 לחודש הנוכחי.
-            # אם אנחנו לפני ה-15, המדד האחרון שפורסם הוא עבור חודשיים אחורה.
-            # אחרת, עבור חודש אחורה.
-            current_cpi_lookup_month = today.month
-            current_cpi_lookup_year = today.year
-
-            if today.day < 15:  # המדד לחודש הקודם עדיין לא פורסם
-                current_cpi_lookup_month -= 2
-            else:  # המדד לחודש הקודם כבר פורסם
-                current_cpi_lookup_month -= 1
-
-            # טיפול במעבר שנים
-            if current_cpi_lookup_month <= 0:
-                current_cpi_lookup_month += 12
-                current_cpi_lookup_year -= 1
+            base_effective_year = int(base_effective_year_input)
+            base_effective_month = int(base_effective_month_input)
+            # זהו תאריך תוקף פסק הדין/ההסכם (תאריך אפקטיבי)
+            base_effective_date_obj = datetime(base_effective_year, base_effective_month, 1)
             
-            # וודא שהמדד המבוקש לא עתידי
-            # אם החודש המחושב גדול מהחודש הנוכחי או השנה גדולה מהנוכחית,
-            # נחזור אחורה עד לחודש שקדם לחודש הנוכחי (או חודשיים אחורה אם אנחנו לפני ה-15)
-            if (current_cpi_lookup_year > today.year) or \
-               (current_cpi_lookup_year == today.year and current_cpi_lookup_month > today.month):
-                current_cpi_lookup_month = today.month
-                current_cpi_lookup_year = today.year
-                if today.day < 15:
-                    current_cpi_lookup_month -= 2
-                else:
-                    current_cpi_lookup_month -= 1
-                if current_cpi_lookup_month <= 0:
-                    current_cpi_lookup_month += 12
-                    current_cpi_lookup_year -= 1
+            # המדד שישמש כ"מדד בסיס קבוע" לכל ההצמדות,
+            # נגזר מתאריך התוקף של פסק הדין (חודשיים לפניו).
+            fixed_base_cpi_year, fixed_base_cpi_month = get_cpi_month_for_effective_date(base_effective_date_obj)
+            
+            fixed_base_cpi_value, fixed_base_cpi_base_desc = get_cpi_value_and_base(fixed_base_cpi_year, fixed_base_cpi_month)
 
-
-            st.write(
-                f"**מדד נוכחי לחישוב:** מנסה לשלוף מדד עבור {current_cpi_lookup_month:02d}/{current_cpi_lookup_year}..."
-            )
-            current_cpi_value, current_cpi_base_desc = get_cpi_value_and_base(
-                current_cpi_lookup_year, current_cpi_lookup_month
-            )
-
-            if current_cpi_value is None:
-                st.warning(
-                    "אזהרה: לא ניתן היה לשלוף את המדד העדכני ביותר. ייתכן שהוא טרם פורסם או שיש שגיאה ב-API."
+            if fixed_base_cpi_value is None:
+                st.error(
+                    f"שגיאה: לא ניתן היה לשלוף את מדד הבסיס הקבוע עבור {fixed_base_cpi_month:02d}/{fixed_base_cpi_year}. אנא וודא את התאריך."
                 )
-                st.error("לא ניתן לבצע חישוב ללא מדד עדכני זמין.")
                 return
 
-            st.info(
-                f"מדד עדכני ({current_cpi_lookup_month:02d}/{current_cpi_lookup_year}, בסיס: {current_cpi_base_desc}): **{current_cpi_value:.2f}**"
+            st.info(f"מדד בסיס קבוע (נגזר מתאריך התוקף {base_effective_month:02d}/{base_effective_year}): **{fixed_base_cpi_value:.2f}** (חודש המדד: {fixed_base_cpi_month:02d}/{fixed_base_cpi_year}, בסיס: {fixed_base_cpi_base_desc})")
+
+            # --- חישוב הסכום העדכני ביותר (התוצאה הסופית) ---
+            today = datetime.now()
+            
+            # המדד שיש להצמיד אליו היום, נגזר מתאריך היום (חודשיים לפניו).
+            current_period_cpi_year, current_period_cpi_month = get_cpi_month_for_effective_date(today)
+            
+            current_period_cpi_value_for_final_calc, current_period_cpi_base_desc_for_final_calc = get_cpi_value_and_base(
+                current_period_cpi_year, current_period_cpi_month
             )
 
-            # חישוב הסכום המעודכן
-            updated_mizono_amount = calculate_updated_mizono_with_link_factor(
-                base_mizono_amount, base_cpi_value, current_cpi_value, link_factor_input
-            )
-
-            if updated_mizono_amount is not None:
+            # לוגיקה לטיפול במדד חסר עבור החישוב הסופי
+            if current_period_cpi_value_for_final_calc is None:
+                st.warning(
+                    f"אזהרה: המדד לחודש {current_period_cpi_month:02d}/{current_period_cpi_year} טרם פורסם. "
+                    f"סכום המזונות המעודכן יוצג לפי העדכון האחרון. יש ללחוץ שוב כאשר המדד יפורסם."
+                )
+                # במקרה של חוסר מדד לחישוב הסופי, נניח שהסכום הוא הסכום הבסיסי
+                # (כי אין לנו בסיס להצמיד אליו אם המדד חסר)
+                final_updated_mizono_amount = base_mizono_amount 
+                current_period_cpi_value_for_final_calc = "אין נתון"
+                current_period_cpi_base_desc_for_final_calc = "אין נתון"
+            else:
+                st.info(
+                    f"מדד עדכון נוכחי (נגזר מהיום): **{current_period_cpi_value_for_final_calc:.2f}** (חודש המדד: {current_period_cpi_month:02d}/{current_period_cpi_year}, בסיס: {current_period_cpi_base_desc_for_final_calc})"
+                )
+                # חישוב הסכום הסופי ביחס לבסיס הקבוע
+                final_updated_mizono_amount = calculate_indexed_amount_from_fixed_base(
+                    base_mizono_amount,
+                    fixed_base_cpi_value,
+                    fixed_base_cpi_base_desc,
+                    current_period_cpi_value_for_final_calc,
+                    current_period_cpi_base_desc_for_final_calc
+                )
+            
+            if final_updated_mizono_amount is not None:
                 st.success(
-                    f"**סכום המזונות המעודכן הוא: {updated_mizono_amount:.2f} ש\"ח**"
+                    f"**סכום המזונות המעודכן כיום הוא: {final_updated_mizono_amount:.2f} ש\"ח**"
                 )
 
-                # חישוב תאריך העדכון הבא המשוער (בהתאם לתדירות)
-                # נתחיל מתאריך מדד הבסיס ונלך קדימה בקפיצות של update_frequency_months
-                next_update_date = datetime(base_year, base_month, 1)
+                # חישוב תאריך העדכון הבא המשוער (בהתאם לתדירות שהוזנה)
+                next_update_display_date = base_effective_date_obj
+                while next_update_display_date <= today:
+                    next_update_display_date += pd.DateOffset(months=update_frequency_months)
+                
+                st.info(f"**תאריך העדכון הבא המשוער (לפי תדירות שהוזנה):** {next_update_display_date.strftime('%d/%m/%Y')}")
 
-                # קירוב לתאריך שבו יחול העדכון הבא
-                # בפועל, צריך לוודא מול פסק הדין מתי הוא "נקודת העדכון"
-                while next_update_date <= today:
-                    # הוספת מספר חודשים, וטיפול במעבר שנה
-                    next_month = next_update_date.month + update_frequency_months
-                    next_year = next_update_date.year
-                    while next_month > 12:  # לטפל ביותר משנה
-                        next_month -= 12
-                        next_year += 1
 
-                    # Streamlit עשוי לרוץ מחדש, לכן נשמור את הערך
-                    st.session_state.next_update_date = datetime(
-                        next_year, next_month, 1
-                    )
-                    next_update_date = st.session_state.next_update_date
-
-                st.info(f"**תאריך העדכון הבא המשוער:** {next_update_date.strftime('%d/%m/%Y')}")
-
-                st.subheader("היסטוריית עדכונים (שנתיים אחרונות)**")
-                st.write("היסטוריה זו מציגה את סכום המזונות המוצמד עבור נקודות העדכון השנתיים האחרונות (עד שנתיים אחורה מהיום).")
+                st.subheader("היסטוריית עדכונים מפורטת (לפי תדירות העדכון)")
+                st.markdown(
+                    """
+                    טבלה זו מציגה את סכום המזונות המוצמד בנקודות העדכון, בהתאם לתדירות העדכון שהוזנה.
+                    הסכום נשאר קבוע בין נקודות עדכון, והוא מוצמד תמיד למדד הבסיס הקבוע.
+                    """
+                )
 
                 # בניית טבלה להצגת היסטוריית עדכונים
                 history_data = []
                 
-                # נקודת התחלה להיסטוריה: המוקדם מבין תאריך הבסיס או שנתיים אחורה מהיום
-                start_history_date = max(base_date_obj, today - timedelta(days=2*365)) # שנתיים אחורה בערך
-
-                # מצא את תאריך העדכון המשוער הראשון שנכנס לטווח שנתיים
-                # נתחיל מתאריך הבסיס ונתקדם בקפיצות עד שנגיע ל-start_history_date
-                current_history_date = datetime(base_year, base_month, 1)
-                while current_history_date < start_history_date:
-                    next_month = current_history_date.month + update_frequency_months
-                    next_year = current_history_date.year
-                    while next_month > 12:
-                        next_month -= 12
-                        next_year += 1
-                    current_history_date = datetime(next_year, next_month, 1)
+                # הסכום המוצג בחודש נתון, שיתעדכן רק בנקודות עדכון רשמיות
+                current_displayed_amount_in_history = base_mizono_amount 
                 
-                # לולאה קדימה מתאריך ההתחלה המותאם ועד היום
-                while current_history_date <= today:
-                    # חודש המדד ששימש לחישוב בפועל (חודש לפני כניסת העדכון לתוקף)
-                    cpi_lookup_month_for_history = current_history_date.month
-                    cpi_lookup_year_for_history = current_history_date.year
+                # תאריך תחילת הסריקה עבור הטבלה: תאריך תוקף פסק הדין/ההסכם
+                current_scan_date = base_effective_date_obj
+                
+                # תאריך נקודת העדכון הבאה שבה אמור להתבצע חישוב הצמדה
+                next_update_calc_date = base_effective_date_obj # מתחיל מנקודת הבסיס
 
-                    # אם העדכון הוא בתחילת חודש, המדד הוא של החודש הקודם
-                    cpi_lookup_month_for_history -= 1
-                    if cpi_lookup_month_for_history == 0:
-                        cpi_lookup_month_for_history = 12
-                        cpi_lookup_year_for_history -= 1
-
-                    cpi_for_history, cpi_base_desc_for_history = get_cpi_value_and_base(
-                        cpi_lookup_year_for_history, cpi_lookup_month_for_history
-                    )
-
-                    if cpi_for_history is None:
-                        st.warning(
-                            f"אין נתוני מדד היסטוריים עבור {cpi_lookup_month_for_history:02d}/{cpi_lookup_year_for_history}. היסטוריית החישובים חלקית."
-                        )
-                        break  # הפסק את הלולאה אם חסרים נתונים
-
-                    calculated_amount = calculate_updated_mizono_with_link_factor(
-                        base_mizono_amount, base_cpi_value, cpi_for_history, link_factor_input
-                    )
+                while current_scan_date <= today:
+                    # בדוק אם החודש הנוכחי הוא נקודת עדכון רשמית
+                    is_official_update_point = False
+                    if (current_scan_date.year == next_update_calc_date.year and 
+                        current_scan_date.month == next_update_calc_date.month):
+                        is_official_update_point = True
                     
-                    if calculated_amount is not None:
+                    if is_official_update_point:
+                        # זהו תאריך עדכון. ננסה לחשב את הסכום המוצמד.
+                        
+                        # המדד שיש להצמיד אליו, נגזר מתאריך העדכון הנוכחי (חודשיים לפניו).
+                        cpi_for_update_year, cpi_for_update_month = get_cpi_month_for_effective_date(current_scan_date)
+                        cpi_for_update_value, cpi_for_update_base_desc = get_cpi_value_and_base(
+                            cpi_for_update_year, cpi_for_update_month
+                        )
+                        
+                        if cpi_for_update_value is None:
+                            # אין נתונים עבור חודש זה - נשמור את הסכום הנוכחי ונציין זאת.
+                            history_data.append(
+                                {
+                                    "תאריך עדכון (אפקטיבי)": current_scan_date.strftime("%d/%m/%Y"),
+                                    "מדד יחס (חודש/שנה)": f"{cpi_for_update_month:02d}/{cpi_for_update_year} (טרם פורסם)",
+                                    "ערך מדד": "טרם פורסם",
+                                    "בסיס מדד": "טרם פורסם",
+                                    "סכום מעודכן": f"{current_displayed_amount_in_history:.2f} ש\"ח (ללא שינוי)",
+                                }
+                            )
+                            # התקדמות לנקודת העדכון הבאה גם אם המדד חסר
+                            next_update_calc_date += pd.DateOffset(months=update_frequency_months)
+                            current_scan_date += pd.DateOffset(months=1)
+                            continue # המשך ללולאה הבאה (המדד נחשב "לא השתנה")
+
+                        # יש מדד זמין, נבצע חישוב הצמדה
+                        calculated_amount = calculate_indexed_amount_from_fixed_base(
+                            base_mizono_amount,
+                            fixed_base_cpi_value,
+                            fixed_base_cpi_base_desc,
+                            cpi_for_update_value,
+                            cpi_for_update_base_desc
+                        )
+                        
+                        if calculated_amount is not None:
+                            current_displayed_amount_in_history = calculated_amount # עדכן את הסכום המוצג
+                            history_data.append(
+                                {
+                                    "תאריך עדכון (אפקטיבי)": current_scan_date.strftime("%d/%m/%Y"),
+                                    "מדד יחס (חודש/שנה)": f"{cpi_for_update_month:02d}/{cpi_for_update_year}",
+                                    "ערך מדד": f"{cpi_for_update_value:.2f}",
+                                    "בסיס מדד": cpi_for_update_base_desc,
+                                    "סכום מעודכן": f"{current_displayed_amount_in_history:.2f} ש\"ח",
+                                }
+                            )
+                        else:
+                            st.warning(f"לא ניתן לחשב סכום מעודכן עבור תאריך {current_scan_date.strftime('%d/%m/%Y')}.")
+                            break # הפסק אם החישוב נכשל
+                        
+                        # התקדמות לתאריך העדכון הבא
+                        next_update_calc_date += pd.DateOffset(months=update_frequency_months)
+
+                    else: # אם זהו לא חודש עדכון רשמי, הסכום נשאר זהה
                         history_data.append(
                             {
-                                "תאריך עדכון (משוער)": current_history_date.strftime(
-                                    "%d/%m/%Y"
-                                ),
-                                "מדד (חודש/שנה)": f"{cpi_lookup_month_for_history:02d}/{cpi_lookup_year_for_history}",
-                                "ערך מדד": f"{cpi_for_history:.2f}",
-                                "סכום מעודכן": f"{calculated_amount:.2f} ש\"ח",
+                                "תאריך עדכון (אפקטיבי)": current_scan_date.strftime("%d/%m/%Y"),
+                                "מדד יחס (חודש/שנה)": "", 
+                                "ערך מדד": "", 
+                                "בסיס מדד": "", 
+                                "סכום מעודכן": f"{current_displayed_amount_in_history:.2f} ש\"ח", # מציג את הסכום האחרון שחושב
                             }
                         )
-
-                    # התקדמות לתאריך העדכון הבא
-                    next_calc_month = current_history_date.month + update_frequency_months
-                    next_calc_year = current_history_date.year
-                    while next_calc_month > 12:
-                        next_calc_month -= 12
-                        next_calc_year += 1
-                    current_history_date = datetime(next_calc_year, next_calc_month, 1)
-
+                    
+                    current_scan_date += pd.DateOffset(months=1) # התקדמות לחודש הבא
+                
                 if history_data:
-                    # היפוך סדר הטבלה כך שהעדכונים האחרונים יוצגו ראשונים
-                    st.dataframe(pd.DataFrame(history_data).iloc[::-1], hide_index=True)
+                    df_history = pd.DataFrame(history_data)
+                    # ודא שהעמודה "תאריך עדכון (אפקטיבי)" היא מסוג datetime לצורך מיון נכון
+                    df_history['תאריך עדכון (אפקטיבי)'] = pd.to_datetime(df_history['תאריך עדכון (אפקטיבי)'], format="%d/%m/%Y")
+                    # מיון בסדר יורד (מהחדש לישן)
+                    df_history_sorted = df_history.sort_values(by="תאריך עדכון (אפקטיבי)", ascending=False)
+                    # החזר תאריך לפורמט המקורי לצורך תצוגה
+                    df_history_sorted['תאריך עדכון (אפקטיבי)'] = df_history_sorted['תאריך עדכון (אפקטיבי)'].dt.strftime("%d/%m/%Y")
+                    
+                    st.dataframe(df_history_sorted, hide_index=True)
                 else:
                     st.write("אין היסטוריית עדכונים להצגה כרגע בטווח המבוקש.")
 
