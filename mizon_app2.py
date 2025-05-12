@@ -50,14 +50,10 @@ def get_cpi_value_and_base(year, month):
             return None, None
 
     except requests.exceptions.RequestException as e:
-        # st.error(f"שגיאה בגישה ל-API של הלמ\"ס (לשליפת מדד ובסיס): {e}") # נסיר הודעות שגיאה ברמת API למען חווית משתמש חלקה
         return None, None
     except ET.ParseError as e:
-        # st.error(f"שגיאה בניתוח נתוני ה-XML: {e}") # נסיר הודעות שגיאה ברמת XML למען חווית משתמש חלקה
-        # st.code(xml_data, language="xml")
         return None, None
     except (ValueError, KeyError) as e:
-        # st.error(f"שגיאה בעיבוד נתוני ה-API: {e}") # נסיר הודעות שגיאה ברמת עיבוד נתונים למען חווית משתמש חלקה
         return None, None
 
 
@@ -72,7 +68,6 @@ def calculate_indexed_amount_from_fixed_base(
     """
     מחשבת את הסכום המוצמד מחדש בהתבסס על סכום בסיס קבוע ומדד בסיס קבוע,
     ביחס למדד של התקופה הנוכחית.
-    מקדם קשר אינו פרמטר, מניחים 1.0 במידה ואין התאמה בסיסים (הלמ"ס מטפל בזה).
     """
     if (
         fixed_base_cpi_value is None
@@ -81,7 +76,6 @@ def calculate_indexed_amount_from_fixed_base(
     ):
         return None
 
-    # נניח שמקדם הקשר הוא 1.0, מכיוון שהמשתמש לא בוחר אותו והלמ"ס אמור לספק מדדים מותאמים לבסיס הרלוונטי.
     indexed_amount = base_amount * (current_period_cpi_value / fixed_base_cpi_value)
 
     return indexed_amount
@@ -144,24 +138,6 @@ def main():
             step=1,
         )
     
-    # הסרת אפשרות בחירת מקדם קשר
-    # st.subheader("מקדם קשר (אם רלוונטי)")
-    # st.markdown(
-    #     """
-    #     יש להזין מקדם קשר אם חל שינוי בסדרת המדדים בין מדד הבסיס הקבוע לבין מדדים עתידיים.
-    #     לדוגמה, אם מדד הבסיס הוא מבסיס "2022 ממוצע" ומדד העדכון הוא מבסיס "2024 ממוצע",
-    #     יש להזין את מקדם הקשר בין הבסיסים.
-    #     """
-    # )
-    # link_factor_input = st.number_input(
-    #     "מקדם קשר:",
-    #     min_value=0.5,
-    #     value=1.0, 
-    #     max_value=2.0,
-    #     step=0.001,
-    #     format="%.3f",
-    # )
-
     update_frequency_months = st.selectbox(
         "תדירות עדכון (חודשים - קובע את נקודות ההצמדה בפועל):", options=[1, 3, 6, 12], index=1
     )
@@ -204,13 +180,14 @@ def main():
             if current_period_cpi_value_for_final_calc is None:
                 st.warning(
                     f"אזהרה: המדד לחודש {current_period_cpi_month:02d}/{current_period_cpi_year} טרם פורסם. "
-                    f"סכום המזונות המעודכן יוצג לפי העדכון האחרון. יש ללחוץ שוב כאשר המדד יפורסם."
+                    f"סכום המזונות המעודכן יוצג לפי העדכון האחרון ללא שינוי. יש ללחוץ שוב כאשר המדד יפורסם."
                 )
-                # במקרה של חוסר מדד לחישוב הסופי, נניח שהסכום הוא הסכום הבסיסי
-                # (כי אין לנו בסיס להצמיד אליו אם המדד חסר)
+                # במקרה של חוסר מדד לחישוב הסופי, נניח שהסכום הוא הסכום הבסיסי (ללא שינוי)
+                # ולא ננסה לחשב הצמדה עם מדד קודם
                 final_updated_mizono_amount = base_mizono_amount 
-                current_period_cpi_value_for_final_calc = "אין נתון"
-                current_period_cpi_base_desc_for_final_calc = "אין נתון"
+                # כדי להציג הודעה למשתמש
+                current_period_cpi_value_for_final_calc = "טרם פורסם"
+                current_period_cpi_base_desc_for_final_calc = "טרם פורסם"
             else:
                 st.info(
                     f"מדד עדכון נוכחי (נגזר מהיום): **{current_period_cpi_value_for_final_calc:.2f}** (חודש המדד: {current_period_cpi_month:02d}/{current_period_cpi_year}, בסיס: {current_period_cpi_base_desc_for_final_calc})"
@@ -281,7 +258,7 @@ def main():
                                     "מדד יחס (חודש/שנה)": f"{cpi_for_update_month:02d}/{cpi_for_update_year} (טרם פורסם)",
                                     "ערך מדד": "טרם פורסם",
                                     "בסיס מדד": "טרם פורסם",
-                                    "סכום מעודכן": f"{current_displayed_amount_in_history:.2f} ש\"ח (ללא שינוי)",
+                                    "סכום מעודכן": f"{current_displayed_amount_in_history:.2f} ש\"ח (ללא שינוי מדד)",
                                 }
                             )
                             # התקדמות לנקודת העדכון הבאה גם אם המדד חסר
