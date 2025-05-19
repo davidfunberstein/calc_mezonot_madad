@@ -15,6 +15,11 @@ CPI_RESOURCE_ID = "120010"
 # מקדם קשר שנתי (מספר קבוע, לא אחוז)
 ANNUAL_LINKAGE_FACTOR = 1.074
 
+# Set Streamlit page configuration as the very first Streamlit command
+st.set_page_config(
+    page_title="מחשבון מזונות מוצמד למדד", page_icon="📈", layout="centered"
+)
+
 st.markdown(
     f"""
     <script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>
@@ -27,11 +32,6 @@ st.markdown(
     </script>
     """,
     unsafe_allow_html=True
-)
-
-# Set Streamlit page configuration as the very first Streamlit command
-st.set_page_config(
-    page_title="מחשבון מזונות מוצמד למדד", page_icon="📈", layout="centered"
 )
 
 # --- פונקציות עזר לטיפול בתאריכים ---
