@@ -22,14 +22,22 @@ st.set_page_config(
 
 st.markdown(
     f"""
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-L99L8BGKT1"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){{dataLayer.push(arguments);}}
-      gtag('js', new Date());
-
-      gtag('config', 'G-L99L8BGKT1');
-    </script>
+   <!-- Default Statcounter code for calc-mezonot-madad
+https://calc-mezonot-madad-v1.streamlit.app/ -->
+<script type="text/javascript">
+var sc_project=13136992; 
+var sc_invisible=1; 
+var sc_security="e4ded755"; 
+</script>
+<script type="text/javascript"
+src="https://www.statcounter.com/counter/counter.js" async></script>
+<noscript><div class="statcounter"><a title="Web Analytics"
+href="https://statcounter.com/" target="_blank"><img class="statcounter"
+src="https://c.statcounter.com/13136992/0/e4ded755/1/" alt="Web Analytics"
+referrerPolicy="no-referrer-when-downgrade"></a></div></noscript>
+<!-- End of Statcounter Code -->
+<a
+href="https://statcounter.com/p13136992/?guest=1">calc-mezonot-madad-analytics</a>
     """,
     unsafe_allow_html=True
 )
