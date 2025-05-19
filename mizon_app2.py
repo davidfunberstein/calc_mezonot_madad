@@ -22,14 +22,15 @@ st.set_page_config(
 
 st.markdown(
     f"""
-    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){{dataLayer.push(arguments);}}
-      gtag('js', new Date());
+    <!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-L99L8BGKT1"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
 
-      gtag('config', '{GA_MEASUREMENT_ID}');
-    </script>
+  gtag('config', 'G-L99L8BGKT1');
+</script>
     """,
     unsafe_allow_html=True
 )
