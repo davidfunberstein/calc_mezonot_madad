@@ -3,12 +3,31 @@ import requests
 from datetime import datetime, timedelta
 import pandas as pd
 import xml.etree.ElementTree as ET
+# ... שאר הייבואים והקוד שלך ...
 
+# Google Analytics Measurement ID
+GA_MEASUREMENT_ID = "G-L99L8BGKT1" # החלף במזהה המדידה שלך
+
+# Inject Google Analytics script
 # --- הגדרות ---
 DATA_GOV_IL_API_URL = "https://api.cbs.gov.il/index/data/price"
 CPI_RESOURCE_ID = "120010"
 # מקדם קשר שנתי (מספר קבוע, לא אחוז)
 ANNUAL_LINKAGE_FACTOR = 1.074
+
+st.markdown(
+    f"""
+    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){{dataLayer.push(arguments);}}
+      gtag('js', new Date());
+
+      gtag('config', '{GA_MEASUREMENT_ID}');
+    </script>
+    """,
+    unsafe_allow_html=True
+)
 
 # Set Streamlit page configuration as the very first Streamlit command
 st.set_page_config(
